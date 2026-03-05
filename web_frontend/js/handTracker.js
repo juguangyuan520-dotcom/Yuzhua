@@ -21,6 +21,10 @@ class HandTracker {
         
         this.canvas = null;
         this.ctx = null;
+        this.lastResultAt = 0;
+        this.frameErrorCount = 0;
+        this.restarting = false;
+        this.watchdogTimer = null;
     }
 
     dlog(...args) {
@@ -132,23 +136,7 @@ class HandTracker {
         
         try {
             await this.waitForVideoReady(this.video);
-            
-            this.canvas = document.createElement('canvas');
-            this.canvas.width = 640;
-            this.canvas.height = 480;
-            this.canvas.style.position = 'absolute';
-            this.canvas.style.top = '0';
-            this.canvas.style.left = '0';
-            this.canvas.style.width = '100%';
-            this.canvas.style.height = '100%';
-            this.canvas.style.pointerEvents = 'none';
-            this.canvas.style.transform = 'scaleX(-1)';
-            
-            const parent = this.displayVideo.parentElement;
-            parent.style.position = 'relative';
-            parent.appendChild(this.canvas);
-            
-            this.ctx = this.canvas.getContext('2d');
+            this.ensureOverlayCanvas();
             
             this.hands = new Hands({
                 locateFile: (file) => `js/${file}`
@@ -165,7 +153,16 @@ class HandTracker {
             
             this.camera = new Camera(this.video, {
                 onFrame: async () => {
-                    await this.hands.send({ image: this.video });
+                    try {
+                        await this.hands.send({ image: this.video });
+                        this.frameErrorCount = 0;
+                    } catch (err) {
+                        this.frameErrorCount += 1;
+                        console.warn("Hands send 失败:", err);
+                        if (this.frameErrorCount >= 3) {
+                            await this.restartTracking("hands_send_error");
+                        }
+                    }
                 },
                 width: 640,
                 height: 480
@@ -173,6 +170,8 @@ class HandTracker {
             
             await this.camera.start();
             this.isTracking = true;
+            this.lastResultAt = Date.now();
+            this.startWatchdog();
             
             this.dlog('✅ 手势跟踪器已启动');
             return true;
@@ -183,12 +182,71 @@ class HandTracker {
             return await this.startPreviewOnly();
         }
     }
+
+    ensureOverlayCanvas() {
+        const parent = this.displayVideo && this.displayVideo.parentElement;
+        if (!parent) return;
+        parent.style.position = 'relative';
+
+        if (this.canvas && this.canvas.parentElement === parent) {
+            return;
+        }
+
+        if (this.canvas && this.canvas.parentElement) {
+            this.canvas.parentElement.removeChild(this.canvas);
+        }
+
+        this.canvas = document.createElement('canvas');
+        this.canvas.width = 640;
+        this.canvas.height = 480;
+        this.canvas.style.position = 'absolute';
+        this.canvas.style.top = '0';
+        this.canvas.style.left = '0';
+        this.canvas.style.width = '100%';
+        this.canvas.style.height = '100%';
+        this.canvas.style.pointerEvents = 'none';
+        this.canvas.style.transform = 'scaleX(-1)';
+        parent.appendChild(this.canvas);
+        this.ctx = this.canvas.getContext('2d');
+    }
+
+    startWatchdog() {
+        if (this.watchdogTimer) return;
+        this.watchdogTimer = setInterval(async () => {
+            if (!this.isTracking || this.restarting) return;
+            const stalled = Date.now() - this.lastResultAt > 8000;
+            if (stalled) {
+                console.warn("手势追踪疑似卡住，自动重启...");
+                await this.restartTracking("watchdog_stall");
+            }
+        }, 3000);
+    }
+
+    async restartTracking(reason) {
+        if (this.restarting) return;
+        this.restarting = true;
+        console.warn("重启手势追踪:", reason);
+        try {
+            if (this.camera) {
+                this.camera.stop();
+                this.camera = null;
+            }
+            await new Promise(r => setTimeout(r, 200));
+            await this.init();
+        } catch (err) {
+            console.error("重启手势追踪失败:", err);
+            await this.startPreviewOnly();
+        } finally {
+            this.restarting = false;
+        }
+    }
     
     distance(p1, p2) {
         return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
     }
     
     onResults(results) {
+        this.lastResultAt = Date.now();
         if (this.ctx && this.canvas) {
             this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         }
@@ -334,6 +392,10 @@ class HandTracker {
     
     stop() {
         this.isTracking = false;
+        if (this.watchdogTimer) {
+            clearInterval(this.watchdogTimer);
+            this.watchdogTimer = null;
+        }
         if (this.camera) {
             this.camera.stop();
         }
