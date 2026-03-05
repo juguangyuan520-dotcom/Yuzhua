@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yuzhua（驭爪）</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='88'>🐾</text></svg>">
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+    <script src="js/hands.min.js"></script>
+    <script src="js/camera_utils.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <canvas id="particle-canvas"></canvas>
+        <video id="video" class="hidden"></video>
+        <div class="hud-overlay" aria-hidden="true">
+            <span class="hud-label tl">YUZHUA CORE</span>
+            <span class="hud-label tr">OPENCLAW LINK</span>
+            <span class="hud-label bl">GESTURE + VOICE</span>
+            <span class="hud-label br">SESSION LIVE</span>
+            <span class="hud-scale top">0  25  50  75  100</span>
+            <span class="hud-scale left">ALT 00 | 20 | 40 | 60</span>
+            <span class="hud-scale right">SIG 12.4 | 18.9 | 27.1</span>
+            <span class="hud-scale bottom">X 0142  Y 7721  Z 009</span>
+        </div>
+
+        <div class="main-container">
+            <h1 class="title">Yuzhua（驭爪）</h1>
+
+            <div class="status-container">
+                <div id="status" class="status idle">等待手势...</div>
+            </div>
+
+            <div class="messages" id="messages"></div>
+
+            <div class="camera-section">
+                <div class="camera-preview">
+                    <video id="camera-video" autoplay playsinline muted></video>
+                    <div id="gesture-hint" class="gesture-hint">等待手势...</div>
+                </div>
+            </div>
+
+            <div id="latest-message" class="latest-message"></div>
+
+            <div class="footer">
+                <span class="hint">🖐️ 打开手掌 = 录音中</span>
+                <span class="hint">✊ 合上手掌 = 停止并发送</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/particleSystem.js"></script>
+    <script src="js/handTracker.js"></script>
+    <script src="js/audioRecorder.js"></script>
+    <script src="js/apiClient.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
