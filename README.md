@@ -43,6 +43,12 @@ OPENCLAW_SESSION_KEY=
 - ✨ Visual feedback: Three.js particle effects
 - 🔐 Session isolation: independent `sessionKey`, no runtime modification to OpenClaw
 
+## Particle States
+
+- Recording: particles rapidly expand from a sphere into a horizontal audio spectrum band; the center reacts strongly to input volume while both sides attenuate.
+- Thinking: particles contract into a structured grid-like sphere with slow rotation, pulse diffusion, and multi-color cycling to convey ongoing reasoning.
+- AI Replying: particles switch to a dual-ring form (stable inner ring + active outer ring), pulsing with speech energy and blue-purple gradients to indicate AI voice output.
+
 ## Tech Stack
 
 | Layer | Technology |
