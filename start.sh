@@ -10,6 +10,33 @@ log() {
   echo "[Yuzhua] $*"
 }
 
+install_with_fallback() {
+  local req_file="$1"
+  if "${VENV_DIR}/bin/pip" install -r "${req_file}"; then
+    return 0
+  fi
+
+  # If user already provided index-url, do not override their choice.
+  if [ -n "${PIP_INDEX_URL:-}" ]; then
+    return 1
+  fi
+
+  local mirrors=(
+    "https://pypi.tuna.tsinghua.edu.cn/simple"
+    "https://pypi.mirrors.ustc.edu.cn/simple"
+    "https://mirrors.aliyun.com/pypi/simple"
+  )
+
+  for mirror in "${mirrors[@]}"; do
+    log "默认源安装失败，尝试镜像源: ${mirror}"
+    if "${VENV_DIR}/bin/pip" install -i "${mirror}" -r "${req_file}"; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
   log "未找到 ${PYTHON_BIN}，请先安装 Python 3。"
   exit 1
@@ -24,7 +51,12 @@ log "安装/更新 Python 依赖..."
 if ! "${VENV_DIR}/bin/python" -m pip install --upgrade pip setuptools wheel; then
   log "pip/setuptools/wheel 升级失败，继续使用当前版本。"
 fi
-"${VENV_DIR}/bin/pip" install -r "${PROJECT_DIR}/requirements.txt"
+if ! install_with_fallback "${PROJECT_DIR}/requirements.txt"; then
+  log "依赖安装失败：当前更可能是网络/镜像问题，而不是 Python 版本问题。"
+  log "你可以重试，或先手动设置镜像："
+  log "  export PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple"
+  exit 1
+fi
 
 if [ ! -f "${PROJECT_DIR}/.env" ]; then
   cp "${PROJECT_DIR}/.env.example" "${PROJECT_DIR}/.env"

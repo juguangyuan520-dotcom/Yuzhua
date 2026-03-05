@@ -9,7 +9,7 @@ import json
 import threading
 import time
 import uuid
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import websocket
 
@@ -35,6 +35,8 @@ class GatewaySender:
         self.last_error: Optional[str] = None
         self.last_pushed_content = ""
         self.disabled_reason: Optional[str] = None
+        self.last_send_ts_ms: Optional[int] = None
+        self.final_fetch_attempted: set[str] = set()
 
         self.on_message: Optional[Callable[[str], None]] = None
         self.on_connect: Optional[Callable[[], None]] = None
@@ -99,6 +101,15 @@ class GatewaySender:
                 self._notify_error(f"网关认证失败: {error}")
             return
 
+        req_id = str(msg.get("id", ""))
+        callback = self.pending_requests.pop(req_id, None)
+        if callback:
+            try:
+                callback(msg)
+            except Exception as exc:
+                print(f"[网关] 处理回查响应失败: {exc}")
+            return
+
         if msg_type == "res" and str(msg.get("id", "")).startswith("chat-send-"):
             req_id = msg.get("id")
             if req_id in self.pending_requests:
@@ -120,9 +131,23 @@ class GatewaySender:
             return
 
         state = payload.get("state")
-        message = payload.get("message", {})
-        content = self._extract_content(message)
+        content = self._extract_content_from_payload(payload)
+        if not content:
+            # Some OpenClaw builds place final text under payload.output / payload.data.
+            content = self._extract_content(payload.get("output"))
+        if not content:
+            content = self._extract_content(payload.get("data"))
+        if not content:
+            content = self._extract_content(payload.get("result"))
         print(f"[网关] chat 事件: state={state}, has_content={bool(content)}")
+
+        if state == "final" and not content:
+            keys = list(payload.keys()) if isinstance(payload, dict) else []
+            print(f"[网关] final 事件未提取到文本，payload keys={keys}")
+            run_id = payload.get("runId") if isinstance(payload, dict) else None
+            session_key = payload.get("sessionKey") if isinstance(payload, dict) else self.session_key
+            if run_id:
+                self._fetch_final_content(run_id, session_key)
 
         if state == "final" and content and content != self.last_pushed_content:
             self.last_pushed_content = content
@@ -137,19 +162,212 @@ class GatewaySender:
         if not message:
             return None
         if isinstance(message, str):
-            return message
+            clean = message.strip()
+            return clean or None
+        if isinstance(message, list):
+            parts = []
+            for item in message:
+                text = self._extract_content(item)
+                if text:
+                    parts.append(text)
+            merged = "".join(parts).strip()
+            return merged or None
         if isinstance(message, dict):
+            # 1) Direct text field
+            text = message.get("text")
+            if isinstance(text, str) and text.strip():
+                return text.strip()
+
+            # 2) Content field (string/list/dict)
             content = message.get("content")
+            if isinstance(content, str) and content.strip():
+                return content.strip()
             if isinstance(content, list):
-                texts = []
+                parts = []
                 for item in content:
                     if isinstance(item, dict) and item.get("type") == "text":
-                        texts.append(item.get("text", ""))
-                return "".join(texts)
-            text = message.get("text")
-            if isinstance(text, str):
-                return text
-        return str(message)
+                        item_text = item.get("text")
+                        if isinstance(item_text, str) and item_text.strip():
+                            parts.append(item_text.strip())
+                    else:
+                        item_text = self._extract_content(item)
+                        if item_text:
+                            parts.append(item_text)
+                merged = "".join(parts).strip()
+                if merged:
+                    return merged
+            if isinstance(content, dict):
+                nested = self._extract_content(content)
+                if nested:
+                    return nested
+
+            # 3) Nested message/output style fields
+            for key in ("message", "output_text", "reply", "answer", "output", "result", "data"):
+                nested = self._extract_content(message.get(key))
+                if nested:
+                    return nested
+
+            # 4) OpenAI-like choices format
+            choices = message.get("choices")
+            if isinstance(choices, list):
+                parts = []
+                for choice in choices:
+                    if not isinstance(choice, dict):
+                        continue
+                    candidate = (
+                        self._extract_content(choice.get("message"))
+                        or self._extract_content(choice.get("delta"))
+                        or self._extract_content(choice.get("content"))
+                    )
+                    if candidate:
+                        parts.append(candidate)
+                merged = "".join(parts).strip()
+                if merged:
+                    return merged
+        return None
+
+    def _extract_text_recursive(self, node: object) -> Optional[str]:
+        if node is None:
+            return None
+        if isinstance(node, str):
+            text = node.strip()
+            return text or None
+        if isinstance(node, dict):
+            for key in ("text", "content", "output_text", "delta", "value"):
+                val = node.get(key)
+                if isinstance(val, str) and val.strip():
+                    return val.strip()
+            for val in node.values():
+                found = self._extract_text_recursive(val)
+                if found:
+                    return found
+            return None
+        if isinstance(node, list):
+            parts = []
+            for item in node:
+                found = self._extract_text_recursive(item)
+                if found:
+                    parts.append(found)
+            return "".join(parts).strip() or None
+        return None
+
+    def _extract_content_from_payload(self, payload: object) -> Optional[str]:
+        if not isinstance(payload, dict):
+            return None
+
+        message = payload.get("message")
+        content = self._extract_content(message)
+        if content:
+            return content
+
+        for key in ("content", "text", "output_text", "delta", "reply", "response"):
+            val = payload.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+
+        messages = payload.get("messages")
+        if isinstance(messages, list) and messages:
+            for msg in reversed(messages):
+                if not isinstance(msg, dict):
+                    continue
+                role = msg.get("role")
+                if role in (None, "assistant", "model", "bot"):
+                    content = self._extract_content(msg)
+                    if content:
+                        return content
+
+        for key in ("output", "result", "data", "response", "assistant", "final"):
+            node = payload.get(key)
+            content = self._extract_text_recursive(node)
+            if content:
+                return content
+
+        return None
+
+    def _extract_latest_assistant_from_history(
+        self,
+        payload: object,
+        min_ts: Optional[int] = None,
+    ) -> Optional[str]:
+        if not isinstance(payload, dict):
+            return None
+        messages = payload.get("messages")
+        if not isinstance(messages, list) or not messages:
+            return None
+
+        candidates: list[tuple[str, Optional[int]]] = []
+        for msg in reversed(messages):
+            if not isinstance(msg, dict):
+                continue
+            role = msg.get("role")
+            if role not in ("assistant", "model", "bot"):
+                continue
+            ts = msg.get("timestamp")
+            content = self._extract_content(msg)
+            if content:
+                candidates.append((content, ts if isinstance(ts, (int, float)) else None))
+
+        if not candidates:
+            return None
+
+        if min_ts is not None:
+            for content, ts in candidates:
+                if ts is not None and ts >= min_ts:
+                    return content
+        return candidates[0][0]
+
+    def _fetch_final_content(self, run_id: str, session_key: Optional[str] = None) -> None:
+        if not run_id:
+            return
+        if run_id in self.final_fetch_attempted:
+            return
+        if not self.ws:
+            return
+
+        self.final_fetch_attempted.add(run_id)
+        sk = session_key or self.session_key
+        min_ts = self.last_send_ts_ms
+        methods = [
+            ("chat.history", {"sessionKey": sk, "limit": 30}),
+            ("chat.get", {"sessionKey": sk, "runId": run_id}),
+            ("chat.result", {"sessionKey": sk, "runId": run_id}),
+            ("chat.getRun", {"sessionKey": sk, "runId": run_id}),
+            ("run.get", {"sessionKey": sk, "runId": run_id}),
+            ("chat.read", {"sessionKey": sk, "runId": run_id}),
+        ]
+
+        def try_method(index: int) -> None:
+            if index >= len(methods):
+                print(f"[网关] runId={run_id} 回查失败：未提取到可用文本")
+                return
+
+            method, params = methods[index]
+            req_id = f"chat-fetch-{uuid.uuid4()}"
+
+            def on_response(resp: dict) -> None:
+                if not resp.get("ok"):
+                    try_method(index + 1)
+                    return
+
+                payload = resp.get("payload") or resp.get("result") or resp.get("data") or {}
+                if method == "chat.history":
+                    content = self._extract_latest_assistant_from_history(payload, min_ts=min_ts)
+                else:
+                    content = self._extract_content_from_payload(payload) or self._extract_text_recursive(payload)
+
+                if content and content != self.last_pushed_content:
+                    self.last_pushed_content = content
+                    print(f"[网关] 回查推送: {content[:30]}...")
+                    if self.on_message:
+                        self.on_message(content)
+                    return
+                try_method(index + 1)
+
+            self.pending_requests[req_id] = on_response
+            req = {"type": "req", "id": req_id, "method": method, "params": params}
+            self.ws.send(json.dumps(req))
+
+        try_method(0)
 
     def _on_error(self, ws: websocket.WebSocketApp, error: object) -> None:
         message = f"WebSocket 错误: {error}"
@@ -177,7 +395,7 @@ class GatewaySender:
                 "minProtocol": 3,
                 "maxProtocol": 3,
                 "client": {
-                    "id": "yuzhua-web",
+                    "id": "webchat",
                     "version": "1.0.0",
                     "platform": "web",
                     "mode": "webchat",
@@ -214,6 +432,7 @@ class GatewaySender:
                 "deliver": False,
             },
         }
+        self.last_send_ts_ms = int(time.time() * 1000)
         self.ws.send(json.dumps(req))
         return True
 

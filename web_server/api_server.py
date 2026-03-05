@@ -169,6 +169,7 @@ async def transcribe_audio(file: UploadFile = File(...)) -> dict[str, Any]:
         result = transcriber.transcribe(audio_to_transcribe)
         text = str(result.get("text", "")).strip()
         vad_passed = bool(result.get("vad", False))
+        print(f"[转录] text='{text}' vad={vad_passed}")
 
         await manager.broadcast({"type": "transcribed", "text": text, "vad": vad_passed})
         if gateway and gateway.is_connected() and text:
