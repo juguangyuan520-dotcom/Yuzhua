@@ -55,6 +55,13 @@ var REMOTE_PACKAGE_SIZE = metadata['remote_package_size'];
                 total: size
               };
             } else {
+              if (!Module.dataFileDownloads) Module.dataFileDownloads = {};
+              if (!Module.dataFileDownloads[url]) {
+                Module.dataFileDownloads[url] = {
+                  loaded: 0,
+                  total: size
+                };
+              }
               Module.dataFileDownloads[url].loaded = event.loaded;
             }
             var total = 0;

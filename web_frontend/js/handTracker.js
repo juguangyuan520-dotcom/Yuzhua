@@ -23,8 +23,12 @@ class HandTracker {
         this.ctx = null;
         this.lastResultAt = 0;
         this.frameErrorCount = 0;
+        this.sendInFlight = false;
         this.restarting = false;
         this.watchdogTimer = null;
+        this.restartCooldownUntil = 0;
+        this.lastErrorLogAt = 0;
+        this.handsReady = false;
     }
 
     dlog(...args) {
@@ -150,18 +154,24 @@ class HandTracker {
             });
             
             this.hands.onResults((results) => this.onResults(results));
+            this.handsReady = false;
+            if (typeof this.hands.initialize === "function") {
+                await this.hands.initialize();
+            }
+            this.handsReady = true;
             
             this.camera = new Camera(this.video, {
                 onFrame: async () => {
+                    if (this.restarting || !this.hands || !this.handsReady) return;
+                    if (this.sendInFlight) return;
+                    this.sendInFlight = true;
                     try {
                         await this.hands.send({ image: this.video });
                         this.frameErrorCount = 0;
                     } catch (err) {
-                        this.frameErrorCount += 1;
-                        console.warn("Hands send 失败:", err);
-                        if (this.frameErrorCount >= 3) {
-                            await this.restartTracking("hands_send_error");
-                        }
+                        await this.handleSendError(err);
+                    } finally {
+                        this.sendInFlight = false;
                     }
                 },
                 width: 640,
@@ -171,6 +181,7 @@ class HandTracker {
             await this.camera.start();
             this.isTracking = true;
             this.lastResultAt = Date.now();
+            this.frameErrorCount = 0;
             this.startWatchdog();
             
             this.dlog('✅ 手势跟踪器已启动');
@@ -214,12 +225,33 @@ class HandTracker {
         if (this.watchdogTimer) return;
         this.watchdogTimer = setInterval(async () => {
             if (!this.isTracking || this.restarting) return;
+            if (typeof document !== "undefined" && document.hidden) return;
+            if (!this.video || this.video.paused || this.video.ended) return;
             const stalled = Date.now() - this.lastResultAt > 8000;
             if (stalled) {
-                console.warn("手势追踪疑似卡住，自动重启...");
-                await this.restartTracking("watchdog_stall");
+                await this.requestRestart("watchdog_stall");
             }
         }, 3000);
+    }
+
+    async handleSendError(err) {
+        this.frameErrorCount += 1;
+        const now = Date.now();
+        if (now - this.lastErrorLogAt > 2000) {
+            const msg = (err && (err.message || err.toString())) || "unknown";
+            console.warn(`Hands send 失败(x${this.frameErrorCount}): ${msg}`);
+            this.lastErrorLogAt = now;
+        }
+        if (this.frameErrorCount >= 3) {
+            await this.requestRestart("hands_send_error");
+        }
+    }
+
+    async requestRestart(reason) {
+        const now = Date.now();
+        if (this.restarting) return;
+        if (now < this.restartCooldownUntil) return;
+        await this.restartTracking(reason);
     }
 
     async restartTracking(reason) {
@@ -227,10 +259,19 @@ class HandTracker {
         this.restarting = true;
         console.warn("重启手势追踪:", reason);
         try {
+            this.isTracking = false;
+            this.handsReady = false;
             if (this.camera) {
                 this.camera.stop();
                 this.camera = null;
             }
+            if (this.hands) {
+                if (typeof this.hands.close === "function") {
+                    try { await this.hands.close(); } catch (_) {}
+                }
+                this.hands = null;
+            }
+            this.sendInFlight = false;
             await new Promise(r => setTimeout(r, 200));
             await this.init();
         } catch (err) {
@@ -238,6 +279,7 @@ class HandTracker {
             await this.startPreviewOnly();
         } finally {
             this.restarting = false;
+            this.restartCooldownUntil = Date.now() + 5000;
         }
     }
     
