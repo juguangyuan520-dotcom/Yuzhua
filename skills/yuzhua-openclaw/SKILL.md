@@ -5,6 +5,30 @@ description: Install, start, stop, and health-check Yuzhua (gesture + voice + Op
 
 # Yuzhua OpenClaw Skill
 
+## Project Introduction
+
+Yuzhua (驭爪) is a lightweight local gesture-driven AI conversation project.
+
+- Open palm starts recording.
+- Close hand stops recording and sends the request.
+- Speech recognition, VAD, and TTS run locally.
+- Conversation routing is connected through OpenClaw gateway.
+- It is isolated from OpenClaw core runtime and does not modify OpenClaw main process behavior.
+
+GitHub: https://github.com/juguangyuan520-dotcom/Yuzhua
+
+## 项目简介（中文）
+
+Yuzhua（驭爪）是一个轻量的本地手势驱动 AI 对话项目。
+
+- 打开手掌开始录音。
+- 合上手掌结束录音并发送请求。
+- 语音识别、VAD、语音播报均在本地执行。
+- 对话请求与回复通过 OpenClaw 网关完成对接。
+- 与 OpenClaw 主运行链路隔离，不影响正在运行的 OpenClaw。
+
+项目地址: https://github.com/juguangyuan520-dotcom/Yuzhua
+
 ## Purpose
 
 Use this skill when the user wants to:
