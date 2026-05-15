@@ -56,6 +56,22 @@ html[data-perf-mode="low"] body::before {
     opacity: 0.48;
 }
 
+html[data-perf-mode="minimal"] body {
+    background: #fff;
+    color: #000;
+}
+
+html[data-perf-mode="minimal"] body::before,
+html[data-perf-mode="minimal"] body::after,
+html[data-perf-mode="minimal"] #app::before,
+html[data-perf-mode="minimal"] #app::after {
+    content: none;
+}
+
+html[data-perf-mode="minimal"] .hud-overlay {
+    display: none;
+}
+
 #app {
     width: 100vw;
     height: 100vh;
@@ -214,6 +230,22 @@ html[data-perf-mode="low"] body::before {
     color: #34c759;
 }
 
+html[data-perf-mode="minimal"] .status {
+    background: rgba(255,255,255,0.86);
+    border: 1px solid #000;
+    border-radius: 6px;
+    color: #000;
+}
+
+html[data-perf-mode="minimal"] .status.recording,
+html[data-perf-mode="minimal"] .status.thinking,
+html[data-perf-mode="minimal"] .status.ready,
+html[data-perf-mode="minimal"] .status.idle {
+    background: rgba(255,255,255,0.86);
+    border-color: #000;
+    color: #000;
+}
+
 @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.7; }
@@ -262,6 +294,28 @@ html[data-perf-mode="low"] body::before {
     border: none !important;
 }
 
+html[data-perf-mode="minimal"] .messages {
+    opacity: 0.92;
+    top: 92px;
+    max-height: 22vh;
+}
+
+html[data-perf-mode="minimal"] .messages::-webkit-scrollbar-track { background: rgba(0,0,0,0.06); }
+html[data-perf-mode="minimal"] .messages::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.26); }
+
+html[data-perf-mode="minimal"] .message,
+html[data-perf-mode="minimal"] .transcript,
+html[data-perf-mode="minimal"] .reply {
+    background: rgba(255,255,255,0.82);
+    color: #000;
+    border: 1px solid rgba(0,0,0,0.16) !important;
+    opacity: 1;
+}
+
+html[data-perf-mode="minimal"] .cursor {
+    background-color: #000;
+}
+
 .reply.ai-effect {
     background: rgba(155,89,182,0.12);
     transform: scale(1.02);
@@ -299,6 +353,11 @@ html[data-perf-mode="low"] body::before {
     transition: opacity 0.25s ease, filter 0.25s ease, border-color 0.25s ease;
 }
 
+html[data-perf-mode="minimal"] .camera-preview {
+    border: 1px solid #000;
+    background: #fff;
+}
+
 .camera-preview.no-hand {
     opacity: 0.45;
     filter: saturate(0.75);
@@ -323,6 +382,14 @@ html[data-perf-mode="low"] body::before {
     background: rgba(0,0,0,0.6);
 }
 
+html[data-perf-mode="minimal"] .gesture-hint,
+html[data-perf-mode="minimal"] .gesture-hint.hand-open,
+html[data-perf-mode="minimal"] .gesture-hint.hand-closed {
+    background: rgba(255,255,255,0.86);
+    border: 1px solid #000;
+    color: #000;
+}
+
 .gesture-hint.hand-open { background: rgba(52,199,89,0.6); }
 .gesture-hint.hand-closed { background: rgba(255,59,48,0.6); }
 
@@ -337,6 +404,10 @@ html[data-perf-mode="low"] body::before {
 }
 
 .hint { font-size: 0.8rem; color: rgba(255,255,255,0.4); }
+
+html[data-perf-mode="minimal"] .hint {
+    color: rgba(0,0,0,0.62);
+}
 
 /* 状态栏右上角 */
 .status-bar {
@@ -358,6 +429,50 @@ html[data-perf-mode="low"] body::before {
 
 .status-badge.connected { background: rgba(52,199,89,0.3); border-color: #34c759; }
 .status-badge.disconnected { background: rgba(255,59,48,0.3); border-color: #ff3b30; }
+
+.recognition-toggle {
+    appearance: none;
+    -webkit-appearance: none;
+    background: rgba(8, 20, 38, 0.78);
+    color: rgba(255,255,255,0.86);
+    border: 1px solid rgba(255,255,255,0.22);
+    border-radius: 15px;
+    padding: 6px 12px;
+    font-size: 0.75rem;
+    line-height: 1;
+    outline: none;
+    cursor: pointer;
+}
+
+.recognition-toggle:hover {
+    border-color: rgba(255,255,255,0.42);
+}
+
+.recognition-toggle:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.recognition-toggle.paused {
+    background: rgba(255,204,0,0.2);
+    border-color: #ffcc00;
+    color: #ffcc00;
+}
+
+html[data-perf-mode="minimal"] .status-bar {
+    gap: 8px;
+}
+
+html[data-perf-mode="minimal"] .status-badge,
+html[data-perf-mode="minimal"] .status-badge.connected,
+html[data-perf-mode="minimal"] .status-badge.disconnected,
+html[data-perf-mode="minimal"] .recognition-toggle,
+html[data-perf-mode="minimal"] .recognition-toggle.paused {
+    background: rgba(255,255,255,0.86);
+    border: 1px solid #000;
+    border-radius: 6px;
+    color: #000;
+}
 
 .perf-switch {
     display: inline-flex;
@@ -389,6 +504,14 @@ html[data-perf-mode="low"] body::before {
     cursor: default;
 }
 
+html[data-perf-mode="minimal"] .perf-select {
+    background: rgba(255,255,255,0.92);
+    border: 1px solid #000;
+    border-radius: 6px;
+    color: #000;
+    backdrop-filter: none;
+}
+
 @media (max-width: 768px) {
     .messages { width: 200px; right: calc(var(--hud-inset-x) + 2px); }
     .camera-preview { width: 150px; height: 112px; }
@@ -412,6 +535,20 @@ html[data-perf-mode="low"] body::before {
     .hud-label.tr { top: 80px; right: 38px; }
     .hud-label.bl { bottom: 48px; left: 38px; }
     .hud-label.br { bottom: 48px; right: 38px; }
+
+    html[data-perf-mode="minimal"] .status-bar {
+        left: 12px;
+        right: 12px;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+    }
+
+    html[data-perf-mode="minimal"] .messages {
+        top: 118px;
+        right: 16px;
+        width: min(220px, calc(100vw - 32px));
+    }
+
 }
 
 /* 最新消息气泡 - 居中于底部摄像头上方 */
@@ -457,4 +594,27 @@ html[data-perf-mode="low"] body::before {
 
 .slide-out {
     animation: slideOut 0.3s ease forwards !important;
+}
+
+html[data-perf-mode="minimal"] .latest-message .bubble,
+html[data-perf-mode="minimal"] .latest-message .bubble.user,
+html[data-perf-mode="minimal"] .latest-message .bubble.ai {
+    background: rgba(255,255,255,0.88);
+    border: 1px solid #000;
+    color: #000;
+    font-size: 20px;
+    max-width: min(960px, calc(100vw - 360px));
+}
+
+@media (max-width: 768px) {
+    html[data-perf-mode="minimal"] .latest-message {
+        bottom: 96px;
+        max-width: calc(100vw - 28px);
+    }
+
+    html[data-perf-mode="minimal"] .latest-message .bubble,
+    html[data-perf-mode="minimal"] .latest-message .bubble.user,
+    html[data-perf-mode="minimal"] .latest-message .bubble.ai {
+        font-size: 18px;
+    }
 }

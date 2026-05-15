@@ -25,13 +25,19 @@ let currentTtsAudio = null;
 let ttsAudioContext = null;
 let ttsAnalyser = null;
 let ttsRaf = null;
+let lastFocusRequestAt = 0;
+let recognitionPaused = false;
+let recognitionSwitching = false;
 const DEBUG = false;
 const PERF_STORAGE_KEY = "yuzhua_perf_mode";
+const FOCUS_COOLDOWN_MS = 4000;
 const PERF_MODES = {
     high: { label: "高", particleCount: 3500, pixelRatioCap: 2, antialias: true, backgroundMotion: "full" },
     balanced: { label: "中", particleCount: 2600, pixelRatioCap: 1.5, antialias: true, backgroundMotion: "lite" },
-    low: { label: "低", particleCount: 1800, pixelRatioCap: 1.2, antialias: false, backgroundMotion: "off" }
+    low: { label: "低", particleCount: 1800, pixelRatioCap: 1.2, antialias: false, backgroundMotion: "off" },
+    minimal: { label: "极简", renderer: "spectrum2d", particleCount: 0, pixelRatioCap: 1, antialias: false, backgroundMotion: "off" }
 };
+const THREE_SCRIPT_URL = "https://unpkg.com/three@0.160.0/build/three.min.js";
 
 function debugLog(...args) {
     if (DEBUG) console.log(...args);
@@ -60,7 +66,7 @@ async function init() {
     // 创建状态栏
     createStatusBar();
     
-    particleSystem = new ParticleSystem('particle-canvas');
+    particleSystem = await createVisualSystem('particle-canvas');
     particleSystem.setExpanded(false);
     
     apiClient = new APIClient();
@@ -95,8 +101,14 @@ async function init() {
     // 手势初始化不阻塞后端连接检测
     const videoEl = document.getElementById('video');
     handTracker = new HandTracker(videoEl, cameraVideoEl, handleGestureChange);
-    handTracker.init().catch((err) => {
+    updateRecognitionToggle();
+    handTracker.init().then((ok) => {
+        recognitionPaused = !ok;
+        updateRecognitionToggle();
+    }).catch((err) => {
         console.warn('手势初始化失败:', err);
+        recognitionPaused = true;
+        updateRecognitionToggle();
     });
     
     audioRecorder = new AudioRecorder(handleAudioData, handleRecordingStop);
@@ -114,20 +126,56 @@ function getPerfModeFromEnv() {
     if (modeFromUrl && PERF_MODES[modeFromUrl]) return modeFromUrl;
     const modeFromStorage = localStorage.getItem(PERF_STORAGE_KEY);
     if (modeFromStorage && PERF_MODES[modeFromStorage]) return modeFromStorage;
-    return "high";
+    return "balanced";
 }
 
 function applyPerfMode(mode) {
-    const safeMode = PERF_MODES[mode] ? mode : "high";
+    const safeMode = PERF_MODES[mode] ? mode : "balanced";
     const config = PERF_MODES[safeMode];
     window.__APP_PERF__ = {
         mode: safeMode,
+        renderer: config.renderer || "three",
         particleCount: config.particleCount,
         pixelRatioCap: config.pixelRatioCap,
         antialias: config.antialias
     };
     document.documentElement.setAttribute("data-perf-mode", safeMode);
     localStorage.setItem(PERF_STORAGE_KEY, safeMode);
+}
+
+function loadScriptOnce(src, globalName) {
+    if (globalName && window[globalName]) return Promise.resolve();
+
+    const existing = document.querySelector(`script[data-dynamic-src="${src}"]`);
+    if (existing) {
+        return new Promise((resolve, reject) => {
+            existing.addEventListener("load", resolve, { once: true });
+            existing.addEventListener("error", reject, { once: true });
+        });
+    }
+
+    return new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = src;
+        script.async = true;
+        script.dataset.dynamicSrc = src;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error(`脚本加载失败: ${src}`));
+        document.head.appendChild(script);
+    });
+}
+
+async function createVisualSystem(canvasId) {
+    const perf = window.__APP_PERF__ || {};
+    if (perf.mode === "minimal") {
+        if (!window.MinimalSpectrumSystem) {
+            throw new Error("极简频谱渲染器未加载");
+        }
+        return new MinimalSpectrumSystem(canvasId);
+    }
+
+    await loadScriptOnce(THREE_SCRIPT_URL, "THREE");
+    return new ParticleSystem(canvasId);
 }
 
 async function clearAppCaches() {
@@ -169,11 +217,13 @@ function createStatusBar() {
         <div id="status-gateway" class="status-badge disconnected">🔴 网关</div>
         <div id="status-server" class="status-badge disconnected">🔴 后端</div>
         <div id="status-vad" class="status-badge">⚪ VAD</div>
+        <button id="recognition-toggle" class="recognition-toggle" type="button" title="暂停或启动摄像头手势识别">暂停识别</button>
         <label class="perf-switch" for="perf-mode" title="性能模式">
             <select id="perf-mode" class="perf-select">
                 <option value="high" ${currentMode === "high" ? "selected" : ""}>性能: 高</option>
                 <option value="balanced" ${currentMode === "balanced" ? "selected" : ""}>性能: 中</option>
                 <option value="low" ${currentMode === "low" ? "selected" : ""}>性能: 低</option>
+                <option value="minimal" ${currentMode === "minimal" ? "selected" : ""}>性能: 极简</option>
             </select>
         </label>
     `;
@@ -187,6 +237,68 @@ function createStatusBar() {
             perfSelectEl.disabled = true;
             await switchPerfMode(selected);
         });
+    }
+
+    const recognitionToggleEl = document.getElementById("recognition-toggle");
+    if (recognitionToggleEl) {
+        recognitionToggleEl.addEventListener("click", toggleRecognition);
+        updateRecognitionToggle();
+    }
+}
+
+function updateRecognitionToggle() {
+    const el = document.getElementById("recognition-toggle");
+    if (!el) return;
+    el.disabled = recognitionSwitching;
+    if (recognitionSwitching) {
+        el.textContent = recognitionPaused ? "启动中..." : "暂停中...";
+        el.classList.toggle("paused", recognitionPaused);
+        return;
+    }
+    el.textContent = recognitionPaused ? "启动识别" : "暂停识别";
+    el.classList.toggle("paused", recognitionPaused);
+}
+
+async function toggleRecognition() {
+    if (recognitionSwitching || !handTracker) return;
+    recognitionSwitching = true;
+    updateRecognitionToggle();
+
+    try {
+        if (recognitionPaused) {
+            const ok = await handTracker.init();
+            recognitionPaused = !ok;
+            if (recognitionPaused) {
+                setCameraPreviewState(false);
+                gestureHintEl.textContent = '摄像头启动失败';
+                gestureHintEl.className = 'gesture-hint';
+            } else {
+                gestureHintEl.textContent = '👋 等待手势...';
+                gestureHintEl.className = 'gesture-hint';
+            }
+        } else {
+            if (isRecording) {
+                stopRecording();
+            }
+            handTracker.stop();
+            setCameraPreviewState(false);
+            gestureHintEl.textContent = '识别已暂停';
+            gestureHintEl.className = 'gesture-hint';
+            if (particleSystem) {
+                particleSystem.setExpanded(false);
+                particleSystem.setThinking(false);
+            }
+            recognitionPaused = true;
+        }
+    } catch (err) {
+        console.error("切换识别失败:", err);
+        recognitionPaused = true;
+        setCameraPreviewState(false);
+        gestureHintEl.textContent = '识别切换失败';
+        gestureHintEl.className = 'gesture-hint';
+    } finally {
+        recognitionSwitching = false;
+        updateRecognitionToggle();
     }
 }
 
@@ -219,6 +331,7 @@ function handleGestureChange(isHandOpen, gestureType) {
     debugLog('👋 手势变化:', gestureType);
     
     if (gestureType === 'hand_open') {
+        requestFocusYuzhuaWindow();
         setCameraPreviewState(true);
         gestureHintEl.textContent = '🖐️ 手掌打开 - 录音中';
         gestureHintEl.className = 'gesture-hint hand-open';
@@ -254,6 +367,20 @@ function handleGestureChange(isHandOpen, gestureType) {
         gestureHintEl.textContent = '👋 等待手势...';
         gestureHintEl.className = 'gesture-hint';
     }
+}
+
+function requestFocusYuzhuaWindow() {
+    const now = Date.now();
+    if (now - lastFocusRequestAt < FOCUS_COOLDOWN_MS) return;
+    lastFocusRequestAt = now;
+
+    fetch('/api/focus-yuzhua', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}'
+    }).catch((err) => {
+        debugLog('聚焦 Yuzhua 窗口失败:', err);
+    });
 }
 
 function setCameraPreviewState(hasHand) {
@@ -369,6 +496,9 @@ function addReply(text) {
             scrollMessagesToBottom();
             
             setStatus('ready', '已就绪');
+            if (particleSystem && !isSpeaking) {
+                particleSystem.setExpandedForAI(false);
+            }
         }
     }, speed);
     
@@ -503,9 +633,19 @@ function speakText(text) {
             });
         } else {
             console.error("[TTS] 失败:", data.error);
+            if (particleSystem) {
+                particleSystem.setAiSpeaking(false);
+                particleSystem.setExpandedForAI(false);
+            }
         }
     })
-    .catch(err => console.error("[TTS] 请求错误:", err));
+    .catch(err => {
+        console.error("[TTS] 请求错误:", err);
+        if (particleSystem) {
+            particleSystem.setAiSpeaking(false);
+            particleSystem.setExpandedForAI(false);
+        }
+    });
 }
 
 function stopTts() {
@@ -569,7 +709,10 @@ function setStatus(state, text) {
 document.addEventListener('DOMContentLoaded', () => {
     const mode = getPerfModeFromEnv();
     applyPerfMode(mode);
-    init();
+    init().catch((err) => {
+        console.error("初始化失败:", err);
+        setStatus("error", "初始化失败");
+    });
 });
 
 window.addEventListener('beforeunload', () => {

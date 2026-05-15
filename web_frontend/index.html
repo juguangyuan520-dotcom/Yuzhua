@@ -5,10 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Yuzhua（驭爪）</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='88'>🐾</text></svg>">
-    <link rel="stylesheet" href="css/style.css">
-    <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
-    <script src="js/hands.min.js"></script>
-    <script src="js/camera_utils.min.js"></script>
+    <script>
+        (() => {
+            const modes = new Set(["high", "balanced", "low", "minimal"]);
+            const params = new URLSearchParams(window.location.search);
+            let storedMode = "";
+            try {
+                storedMode = localStorage.getItem("yuzhua_perf_mode") || "";
+            } catch (err) {
+                storedMode = "";
+            }
+            const mode = params.get("perf") || storedMode || "balanced";
+            document.documentElement.setAttribute("data-perf-mode", modes.has(mode) ? mode : "balanced");
+        })();
+    </script>
+    <link rel="stylesheet" href="css/style.css?v=20260515-recognition-toggle">
+    <script src="js/hands.min.js?v=20260515-recognition-toggle"></script>
+    <script src="js/camera_utils.min.js?v=20260515-recognition-toggle"></script>
 </head>
 <body>
     <div id="app">
@@ -50,10 +63,11 @@
         </div>
     </div>
 
-    <script src="js/particleSystem.js"></script>
-    <script src="js/handTracker.js"></script>
-    <script src="js/audioRecorder.js"></script>
-    <script src="js/apiClient.js"></script>
-    <script src="js/main.js"></script>
+    <script src="js/particleSystem.js?v=20260515-recognition-toggle"></script>
+    <script src="js/minimalSpectrumSystem.js?v=20260515-recognition-toggle"></script>
+    <script src="js/handTracker.js?v=20260515-recognition-toggle"></script>
+    <script src="js/audioRecorder.js?v=20260515-recognition-toggle"></script>
+    <script src="js/apiClient.js?v=20260515-recognition-toggle"></script>
+    <script src="js/main.js?v=20260515-recognition-toggle"></script>
 </body>
 </html>

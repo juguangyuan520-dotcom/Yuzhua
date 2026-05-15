@@ -5,6 +5,8 @@
 
 class HandTracker {
     constructor(videoElement, displayVideoElement, onGestureChange) {
+        this.captureWidth = 480;
+        this.captureHeight = 360;
         this.video = videoElement;
         this.displayVideo = displayVideoElement;
         this.onGestureChange = onGestureChange;
@@ -65,15 +67,15 @@ class HandTracker {
         if (videoInputs.length > 0) {
             // 优先按具体设备 ID 尝试，避免 facingMode 兼容差异导致的 NotFound
             for (const input of videoInputs.slice(0, 3)) {
-                constraintsList.push({ video: { deviceId: { exact: input.deviceId }, width: 640, height: 480 } });
+                constraintsList.push({ video: { deviceId: { exact: input.deviceId }, width: this.captureWidth, height: this.captureHeight } });
                 constraintsList.push({ video: { deviceId: { exact: input.deviceId } } });
             }
         }
 
         constraintsList.push(
-            { video: { width: 640, height: 480, facingMode: { ideal: "user" } } },
-            { video: { width: 640, height: 480, facingMode: { ideal: "environment" } } },
-            { video: { width: 640, height: 480 } },
+            { video: { width: this.captureWidth, height: this.captureHeight, facingMode: { ideal: "user" } } },
+            { video: { width: this.captureWidth, height: this.captureHeight, facingMode: { ideal: "environment" } } },
+            { video: { width: this.captureWidth, height: this.captureHeight } },
             { video: true }
         );
 
@@ -174,8 +176,8 @@ class HandTracker {
                         this.sendInFlight = false;
                     }
                 },
-                width: 640,
-                height: 480
+                width: this.captureWidth,
+                height: this.captureHeight
             });
             
             await this.camera.start();
@@ -434,18 +436,42 @@ class HandTracker {
     
     stop() {
         this.isTracking = false;
+        this.handsReady = false;
+        this.restarting = false;
+        this.sendInFlight = false;
+        this.currentGesture = null;
+        this.gestureHistory = [];
         if (this.watchdogTimer) {
             clearInterval(this.watchdogTimer);
             this.watchdogTimer = null;
         }
         if (this.camera) {
             this.camera.stop();
+            this.camera = null;
+        }
+        if (this.hands) {
+            if (typeof this.hands.close === "function") {
+                try {
+                    const closeResult = this.hands.close();
+                    if (closeResult && typeof closeResult.catch === "function") {
+                        closeResult.catch(() => {});
+                    }
+                } catch (_) {}
+            }
+            this.hands = null;
         }
         
         [this.video, this.displayVideo].forEach(el => {
             if (el && el.srcObject) {
                 el.srcObject.getTracks().forEach(track => track.stop());
+                el.srcObject = null;
+                el.removeAttribute("src");
+                el.load();
             }
         });
+
+        if (this.ctx && this.canvas) {
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        }
     }
 }
